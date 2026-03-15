@@ -1,15 +1,17 @@
 import { resolve } from "path"
 import { fileURLToPath } from "url"
 import { dirname } from "path"
-import { runLoop } from "../src/loop.js"
-import { OpenCodeAgent } from "../src/implementations/opencode-agent.js"
-import { SATEvaluator } from "./test-evaluator.js"
 import { readFile } from "fs/promises"
-import { writeFile } from "fs/promises"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const testCases = [
+interface SATInstance {
+  cnf: string
+  expected: boolean // true = satisfiable, false = unsatisfiable
+  name: string
+}
+
+const testCases: SATInstance[] = [
   // Simple satisfiable (3 vars, 4 clauses)
   {
     name: "simple_sat_1",
@@ -516,44 +518,7 @@ const testCases = [
   },
 ]
 
-function escapeString(s: string): string {
-  return JSON.stringify(s)
-}
-
-async function runSATTest(code: string, tc: { name: string; expected: boolean; cnf: string }): Promise<{ passed: boolean; actual: string }> {
-  const { execSync } = await import("child_process")
-  const { join } = await import("path")
-  const { writeFile, unlink } = await import("fs/promises")
-
-  try {
-    const testFile = join(__dirname, "temp-sat-test.ts")
-    const testCode = `
-import { SATSolver } from './solution.js';
-
-const solver = new SATSolver();
-const cnf = ${JSON.stringify(tc.cnf)};
-try {
-  const result = solver.solve(cnf);
-  console.log(JSON.stringify({ 
-    passed: result.satisfiable === ${tc.expected}, 
-    actual: result.satisfiable ? 'SAT' : 'UNSAT'
-  }));
-} catch (e) {
-  console.log(JSON.stringify({ passed: false, error: e.message }));
-}
-`
-    await writeFile(testFile, testCode)
-    const output = execSync(`npx tsx temp-sat-test.ts`, { encoding: "utf-8", cwd: __dirname }).trim()
-    await unlink(testFile).catch(() => {})
-    
-    const parsed = JSON.parse(output)
-    return { passed: parsed.passed, actual: parsed.actual ?? "ERROR" }
-  } catch {
-    return { passed: false, actual: "ERROR" }
-  }
-}
-
-class LocalEvaluator {
+export class SATEvaluator {
   async evaluate(_response: { output: string; logs: string[] }, _iteration: number): Promise<{ score: number; [key: string]: unknown }> {
     const solutionPath = resolve(__dirname, "solution.ts")
     
@@ -573,13 +538,43 @@ class LocalEvaluator {
       const results: string[] = []
       let passed = 0
       
+      const { writeFile, unlink } = await import("fs/promises")
+      const { execSync } = await import("child_process")
+      
       for (const tc of testCases) {
-        const result = await runSATTest(solutionCode, tc)
-        if (result.passed) {
-          passed++
-          results.push(`✓ ${tc.name}`)
-        } else {
-          results.push(`✗ ${tc.name} (got ${result.actual})`)
+        try {
+          const testFile = resolve(__dirname, "temp-sat-test.ts")
+          const testCode = `
+import { SATSolver } from './solution.js';
+
+const solver = new SATSolver();
+const cnf = ${JSON.stringify(tc.cnf)};
+try {
+  const result = solver.solve(cnf);
+  console.log(JSON.stringify({ 
+    passed: result.satisfiable === ${tc.expected}, 
+    actual: result.satisfiable, 
+    expected: ${tc.expected},
+    name: ${JSON.stringify(tc.name)}
+  }));
+} catch (e) {
+  console.log(JSON.stringify({ passed: false, error: e.message, name: ${JSON.stringify(tc.name)} }));
+}
+`
+          await writeFile(testFile, testCode)
+          const output = execSync(`npx tsx temp-sat-test.ts`, { encoding: "utf-8", cwd: __dirname }).trim()
+          await unlink(testFile).catch(() => {})
+          
+          const parsed = JSON.parse(output)
+          if (parsed.passed) {
+            passed++
+            results.push(`✓ ${tc.name}`)
+          } else {
+            results.push(`✗ ${tc.name} (got ${parsed.actual}, expected ${parsed.expected})`)
+          }
+        } catch (e: unknown) {
+          const error = e as Error
+          results.push(`✗ ${tc.name} (ERROR: ${error.message})`)
         }
       }
       
@@ -599,32 +594,6 @@ class LocalEvaluator {
   }
 }
 
-async function main() {
-  const taskPath = resolve(__dirname, "task.md")
-  const runDir = resolve(__dirname, "runs")
-  
-  console.log("=== Feedback Loop: SAT Solver ===\n")
-
-  const agent = new OpenCodeAgent()
-  const evaluator = new LocalEvaluator()
-
-  const result = await runLoop({
-    agent,
-    evaluator,
-    loopConfig: {
-      taskPath,
-      maxIterations: 10,
-      threshold: 1.0,
-      runDir,
-      selfReflectionInterval: 3,
-    },
-  })
-
-  console.log("\n=== Final Result ===")
-  console.log(`Success: ${result.success}`)
-  console.log(`Iterations: ${result.iterations}`)
-  console.log(`Final Score: ${(result.finalScore * 100).toFixed(0)}%`)
-  console.log(`Best Score: ${(result.bestScore * 100).toFixed(0)}% (iteration ${result.bestIteration + 1})`)
+export function createEvaluator() {
+  return new SATEvaluator()
 }
-
-main().catch(console.error)

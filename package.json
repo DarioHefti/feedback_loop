@@ -8,10 +8,11 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "example": "tsx examples/counter.ts"
+    "example": "tsx examples/run-example.ts"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.2.0"
+    "@opencode-ai/sdk": "^1.2.0",
+    "dotenv": "^17.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
