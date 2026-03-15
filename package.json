@@ -4,6 +4,10 @@
   "description": "Minimal agent harness with objective feedback loop",
   "type": "module",
   "main": "dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DarioHefti/feedback_loop"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",

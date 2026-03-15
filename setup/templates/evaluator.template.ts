@@ -4,7 +4,8 @@
  * Copy this file to src/evaluator.ts and implement the evaluate method.
  */
 
-import type { Evaluator, EvaluationResult, AgentResponse } from "../interfaces/index.js"
+// When copied to src/, import from "./index.js"
+import type { Evaluator, EvaluationResult, AgentResponse } from "./index.js"
 import { existsSync } from "fs"
 import { readFile } from "fs/promises"
 import { exec } from "child_process"

@@ -4,6 +4,7 @@
  * Copy this file to src/run.ts and customize the configuration.
  */
 
+// When copied to src/, import from "./index.js"
 import { runLoop, OpenCodeAgent } from "./index.js"
 import { ProjectEvaluator } from "./evaluator.js"
 import { ProjectContextProvider } from "./context-provider.js"

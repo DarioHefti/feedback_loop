@@ -43,7 +43,7 @@ Create a markdown file describing the task. Be specific and clear.
 The evaluator MUST be deterministic - same input produces same score.
 
 ```typescript
-import type { Evaluator, EvaluationResult, AgentResponse } from "./interfaces/index.js"
+import type { Evaluator, EvaluationResult, AgentResponse } from "./index.js"
 
 export class ProjectEvaluator implements Evaluator {
   async evaluate(response: AgentResponse, iteration: number): Promise<EvaluationResult> {
@@ -94,7 +94,7 @@ export class ProjectEvaluator implements Evaluator {
 Provides project-specific context to the agent each iteration.
 
 ```typescript
-import type { ContextProvider, MemoryEntry } from "./interfaces/index.js"
+import type { ContextProvider, MemoryEntry } from "./index.js"
 
 export class ProjectContextProvider implements ContextProvider {
   async getContext(task: string, memory: MemoryEntry[], iteration: number): Promise<string> {

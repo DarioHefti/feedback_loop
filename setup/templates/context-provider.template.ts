@@ -5,7 +5,8 @@
  * This is OPTIONAL - there's a default provider that summarizes memory.
  */
 
-import type { ContextProvider, MemoryEntry } from "../interfaces/index.js"
+// When copied to src/, import from "./index.js"
+import type { ContextProvider, MemoryEntry } from "./index.js"
 import { existsSync } from "fs"
 import { readFile } from "fs/promises"
 
