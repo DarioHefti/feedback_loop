@@ -1,0 +1,23 @@
+ets build an agent harness based on the ideas of this repo:https://github.com/karpathy/autoresearch . the idea is pretty simple. give an llm a feedback loop.  in my case 
+
+
+
+i want to build an agent harness with as little code as possible that defines the following things:
+it should be a blue print that can very easily be adopted for any project that can benefit from objective feedback to improve the agents outcome. the entire idea is inspired by the following repo:
+https://github.com/karpathy/autoresearch
+but this focuses only on LLM research stuff. i want mine to be generic because the idea to give an llm quick and objective feedback works great.
+
+-main loop (calling an llm agent, put it behind an interface and add implementation for opencode)
+-main task (just an md-file)
+-context (a python script with one function called (get context) this way it can be adopted to any codebase)
+-tools (information about what the llm can use,by default we will provide a tool to write_memory, read_memory to  keep track of what has been done by the llm and what worked and what did not, maybe a lesson learned file or something)
+-agent interface (a simple python interface that allows for agent calling)
+-evaluate (a python interface that gets called by the main loop and returns results based on the changes of the llm. this will need to be implemented and deterministic)
+
+the entire loop should look like this:
+
+main.py starts main loop -> reads main task.md, then calls get_context interface for additional context, then calls get_tools. then it calls the agent which does the work. once the agent finishes it will evaluate the result and if the result is below a thresold rerun the task.
+the result should have a numeric value based on which the loop continues. also there should be a max-iteration count that stops the loop eventually if no results work.
+
+build it as simplistic as possible. 
+ask me if something is unclear
