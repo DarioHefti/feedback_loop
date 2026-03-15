@@ -85,6 +85,38 @@ export class Memory {
   }
 
   /**
+   * Log evaluator feedback for an iteration
+   */
+  async logEvaluation(iteration: number, evaluation: { score: number; [key: string]: unknown }): Promise<void> {
+    const logPath = join(this.runDir, `evaluation_${String(iteration + 1).padStart(3, "0")}.log`)
+    const content = [
+      `=== Evaluation for Iteration ${iteration + 1} ===`,
+      `Timestamp: ${new Date().toISOString()}`,
+      "",
+      "=== Score ===",
+      evaluation.score.toString(),
+      "",
+      "=== Feedback ===",
+      ...Object.entries(evaluation)
+        .filter(([k]) => k !== "score")
+        .flatMap(([k, v]) => {
+          if (Array.isArray(v)) {
+            return v.map((item, idx) => {
+              if (typeof item === "object" && item !== null) {
+                return `${k}[${idx}]: ${JSON.stringify(item)}`
+              }
+              return `${k}[${idx}]: ${item}`
+            })
+          } else if (typeof v === "object" && v !== null) {
+            return [`${k}: ${JSON.stringify(v)}`]
+          }
+          return [`${k}: ${v}`]
+        }),
+    ]
+    await writeFile(logPath, content.join("\n"), "utf-8")
+  }
+
+  /**
    * Mark the run as completed
    */
   async complete(): Promise<void> {
@@ -131,6 +163,10 @@ export class Memory {
 
   get threshold(): number {
     return this.state.threshold
+  }
+
+  get directory(): string {
+    return this.runDir
   }
 
   /**

@@ -1,4 +1,5 @@
 import type { MemoryEntry } from "./types.js"
+import { SYSTEM_INSTRUCTIONS, formatMemoryEntry } from "../prompts.js"
 
 /**
  * Context provider interface - implement this to provide task-specific context
@@ -27,26 +28,40 @@ export interface ContextProvider {
 export type ContextProviderFactory = () => ContextProvider | Promise<ContextProvider>
 
 /**
- * Simple default context provider that just returns memory summary
+ * Simple default context provider that includes system instructions and memory summary
  */
 export class DefaultContextProvider implements ContextProvider {
   async getContext(task: string, memory: MemoryEntry[], iteration: number): Promise<string> {
+    const sections: string[] = []
+    
+    // Always include system instructions so agent knows about critical feedback
+    sections.push(SYSTEM_INSTRUCTIONS)
+    
+    sections.push(`## Current Status\n`)
+    sections.push(`This is iteration ${iteration + 1}.`)
+    
     if (memory.length === 0) {
-      return `This is iteration ${iteration + 1}. No previous attempts.`
+      sections.push(`No previous attempts yet.`)
+    } else {
+      sections.push(`\n## Previous Attempts\n`)
+      
+      // Use formatMemoryEntry for detailed feedback
+      for (const entry of memory) {
+        sections.push(formatMemoryEntry(entry))
+      }
+      
+      const bestScore = Math.max(...memory.map((m) => m.score))
+      const lastScore = memory[memory.length - 1].score
+      
+      sections.push(`\n**Best score so far:** ${(bestScore * 100).toFixed(0)}%`)
+      
+      if (memory.length > 1 && lastScore < bestScore) {
+        sections.push(`\n**Note:** Your last attempt scored lower than your best (${(lastScore * 100).toFixed(0)}% vs ${(bestScore * 100).toFixed(0)}%). Consider what worked better before.`)
+      }
+      
+      sections.push(`\nLearn from the evaluation feedback above. If previous approaches aren't working, try something fundamentally different.`)
     }
-
-    const summary = memory.map((m) => {
-      const status = m.failed ? "FAILED" : `score: ${m.score.toFixed(2)}`
-      return `- Iteration ${m.iteration + 1} (${status}): ${m.approach}\n  Insights: ${m.insights.join(", ")}`
-    }).join("\n")
-
-    return `This is iteration ${iteration + 1}.
-
-Previous attempts:
-${summary}
-
-Best score so far: ${Math.max(...memory.map((m) => m.score)).toFixed(2)}
-
-Learn from what worked and what didn't. Try a different approach if previous ones failed.`
+    
+    return sections.join("\n")
   }
 }

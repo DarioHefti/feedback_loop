@@ -37,6 +37,12 @@ export interface AgentResponse {
   output: string
   logs: string[]
   sessionId?: string
+  /**
+   * Critical feedback from the agent.
+   * If present, the loop stops immediately and shows this to the user.
+   * Use this when critical information or tools are missing to complete the task.
+   */
+  criticalFeedback?: string
 }
 
 /** Loop configuration */
@@ -45,6 +51,11 @@ export interface LoopConfig {
   threshold: number
   taskPath: string
   runDir?: string
+  /**
+   * Run self-reflection every N iterations (default: disabled).
+   * Reflection analyzes progress and can stop the loop early if the task is unsolvable.
+   */
+  selfReflectionInterval?: number
 }
 
 /** Loop result */
@@ -55,4 +66,17 @@ export interface LoopResult {
   bestScore: number
   bestIteration: number
   runId: string
+}
+
+/** Result of a mid-loop self-reflection */
+export interface SelfReflectionResult {
+  /** Analysis and recommendations from reflection */
+  analysis: string
+  /** 
+   * If set, the agent has determined the task cannot be completed.
+   * This stops the loop immediately.
+   */
+  criticalFeedback: string | null
+  /** Iteration at which reflection was performed */
+  atIteration: number
 }

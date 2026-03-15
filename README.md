@@ -73,7 +73,7 @@ const result = await runLoop({
   evaluator: new MyEvaluator(),
   loopConfig: {
     taskPath: "./task.md",
-    maxIterations: 10,
+    maxIterations: 5,
     threshold: 0.9,
   },
 })
