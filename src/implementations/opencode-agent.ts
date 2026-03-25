@@ -177,83 +177,88 @@ export class OpenCodeAgent implements Agent {
             if (this.abortController?.signal.aborted) break
 
             // Parse event and emit major ones
+            // Event structure from SDK: { type: "event.type", properties: { ... } }
             const eventData = event as unknown as { 
               type?: string
               properties?: Record<string, unknown>
             }
 
-            // Handle different event types from OpenCode
-            // Event structure: { type: "event.type", properties: { ... } }
             const eventType = eventData.type || ""
             const props = eventData.properties || {} as Record<string, unknown>
 
-            // Tool events
-            if (eventType === "part.updated" || eventType === "part.created") {
+            // Tool events - triggered by message.part.updated with tool parts
+            if (eventType === "message.part.updated") {
               const part = props.part as Record<string, unknown> | undefined
               const partType = part?.type as string | undefined
-              const toolName = part?.toolName as string | undefined
-              const state = part?.state as string | undefined
 
-              if (partType === "tool" && toolName) {
-                const messageID = props.messageID as string | undefined
-                const toolKey = `${messageID || ""}:${toolName}`
-                
-                if (state === "pending" || state === "running") {
-                  if (!toolsInProgress.has(toolKey)) {
-                    toolsInProgress.add(toolKey)
+              if (partType === "tool") {
+                // ToolPart has 'tool' field for tool name, and 'state' object with 'status'
+                const toolName = part?.tool as string | undefined
+                const stateObj = part?.state as Record<string, unknown> | undefined
+                const status = stateObj?.status as string | undefined
+                const messageID = part?.messageID as string | undefined
+
+                if (toolName) {
+                  const toolKey = `${messageID || ""}:${toolName}`
+                  
+                  if (status === "pending" || status === "running") {
+                    if (!toolsInProgress.has(toolKey)) {
+                      toolsInProgress.add(toolKey)
+                      this.emitEvent({
+                        type: "tool.start",
+                        name: toolName,
+                        timestamp: new Date(),
+                      })
+                    }
+                  } else if (status === "completed") {
+                    toolsInProgress.delete(toolKey)
                     this.emitEvent({
-                      type: "tool.start",
+                      type: "tool.complete",
                       name: toolName,
                       timestamp: new Date(),
                     })
+                  } else if (status === "error") {
+                    toolsInProgress.delete(toolKey)
+                    const errorMsg = stateObj?.error as string | undefined
+                    this.emitEvent({
+                      type: "tool.error",
+                      name: toolName,
+                      message: errorMsg || "Unknown error",
+                      timestamp: new Date(),
+                    })
                   }
-                } else if (state === "completed") {
-                  toolsInProgress.delete(toolKey)
+                }
+              }
+            }
+
+            // Message events - triggered by message.updated
+            if (eventType === "message.updated") {
+              const info = props.info as Record<string, unknown> | undefined
+              const role = info?.role as string | undefined
+              const timeObj = info?.time as Record<string, unknown> | undefined
+              const completed = timeObj?.completed as number | undefined
+              
+              if (role === "assistant") {
+                if (completed) {
                   this.emitEvent({
-                    type: "tool.complete",
-                    name: toolName,
+                    type: "message.complete",
                     timestamp: new Date(),
                   })
-                } else if (state === "error") {
-                  toolsInProgress.delete(toolKey)
-                  const errorMsg = part?.error as string | undefined
+                } else {
+                  // Message started (no completed time yet)
                   this.emitEvent({
-                    type: "tool.error",
-                    name: toolName,
-                    message: errorMsg || "Unknown error",
+                    type: "message.start",
                     timestamp: new Date(),
                   })
                 }
               }
             }
 
-            // Message events
-            if (eventType === "message.created") {
-              const message = props.message as Record<string, unknown> | undefined
-              const role = message?.role as string | undefined
-              if (role === "assistant") {
-                this.emitEvent({
-                  type: "message.start",
-                  timestamp: new Date(),
-                })
-              }
-            }
-
-            if (eventType === "message.updated") {
-              const message = props.message as Record<string, unknown> | undefined
-              const role = message?.role as string | undefined
-              const complete = message?.complete as boolean | undefined
-              if (role === "assistant" && complete) {
-                this.emitEvent({
-                  type: "message.complete",
-                  timestamp: new Date(),
-                })
-              }
-            }
-
             // Session errors
             if (eventType === "session.error") {
-              const errorMsg = props.error as string | undefined
+              const error = props.error as Record<string, unknown> | undefined
+              const errorData = error?.data as Record<string, unknown> | undefined
+              const errorMsg = errorData?.message as string | undefined
               this.emitEvent({
                 type: "session.error",
                 message: errorMsg || "Unknown session error",
