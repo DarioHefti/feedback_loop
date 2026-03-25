@@ -1,5 +1,6 @@
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk"
 import type { Agent, AgentResponse, DetailedEvent, FullResponseDetails, MajorEventType } from "../interfaces/index.js"
+import { EventLogger } from "../logger.js"
 
 type OpencodeInstance = Awaited<ReturnType<typeof createOpencode>>
 type OpencodeClient = ReturnType<typeof createOpencodeClient>
@@ -57,6 +58,11 @@ export interface OpenCodeAgentOptions {
    * Default: 120000 (2 minutes)
    */
   timeoutMs?: number
+  /**
+   * Directory for CSV event logs.
+   * If set, events are logged to a CSV file in real-time.
+   */
+  logDir?: string
 }
 
 /**
@@ -75,9 +81,14 @@ export class OpenCodeAgent implements Agent {
   private sessionId: string | null = null
   private options: OpenCodeAgentOptions
   private abortController: AbortController | null = null
+  private eventLogger: EventLogger | null = null
+  private currentIteration = 0
 
   constructor(options?: OpenCodeAgentOptions) {
     this.options = options ?? {}
+    if (options?.logDir) {
+      this.eventLogger = new EventLogger(options.logDir)
+    }
   }
 
   /** Emit an event to the callback and/or console */
@@ -176,10 +187,12 @@ export class OpenCodeAgent implements Agent {
     console.log(`Created session: ${this.sessionId}`)
   }
 
-  async run(task: string, context: string): Promise<AgentResponse> {
+  async run(task: string, context: string, iteration?: number): Promise<AgentResponse> {
     if (!this.client || !this.sessionId) {
       throw new Error("Agent not initialized. Call init() first.")
     }
+
+    this.currentIteration = iteration ?? this.currentIteration + 1
 
     const logs: string[] = []
     const collectedEvents: DetailedEvent[] = []
@@ -188,10 +201,14 @@ export class OpenCodeAgent implements Agent {
     
     logs.push(`[${new Date().toISOString()}] Sending prompt to OpenCode...`)
 
+    // Initialize event logger if configured
+    if (this.eventLogger) {
+      await this.eventLogger.init()
+    }
+
     // Helper to collect an event and also emit it
-    const collectAndEmitEvent = (event: Parameters<EventCallback>[0], durationMs?: number) => {
-      // Add to collected events for logging
-      collectedEvents.push({
+    const collectAndEmitEvent = async (event: Parameters<EventCallback>[0], durationMs?: number) => {
+      const detailedEvent: DetailedEvent = {
         type: event.type,
         timestamp: event.timestamp.toISOString(),
         name: event.name,
@@ -199,7 +216,16 @@ export class OpenCodeAgent implements Agent {
         durationMs,
         input: event.input,
         output: event.output,
-      })
+      }
+      
+      // Add to collected events for logging
+      collectedEvents.push(detailedEvent)
+      
+      // Log to CSV file in real-time
+      if (this.eventLogger) {
+        await this.eventLogger.logEvent(detailedEvent, this.currentIteration)
+      }
+      
       // Also emit to callback/verbose
       this.emitEvent(event)
     }
@@ -238,16 +264,24 @@ export class OpenCodeAgent implements Agent {
             const partType = part?.type as string | undefined
 
             if (partType === "tool") {
-              // ToolPart has 'tool' field for tool name, 'input' for params, and 'state' object with 'status'
+              // ToolPart structure from SDK:
+              // - part.tool: tool name
+              // - part.state: { status, input, output, ... }
+              // - part.id: unique part id
               const toolName = part?.tool as string | undefined
-              const toolInput = part?.input as Record<string, unknown> | undefined
               const stateObj = part?.state as Record<string, unknown> | undefined
               const status = stateObj?.status as string | undefined
-              const stateOutput = stateObj?.output as unknown
+              // Input is inside state (ToolStatePending, ToolStateRunning, etc.)
+              const toolInput = stateObj?.input as Record<string, unknown> | undefined
+              // Output is in state.output for completed state
+              const stateOutput = stateObj?.output as string | undefined
               const messageID = part?.messageID as string | undefined
+              // Use the unique part id
+              const partId = part?.id as string | undefined
 
               if (toolName) {
-                const toolKey = `${messageID || ""}:${toolName}`
+                // Use partId for uniqueness (same tool can run multiple times)
+                const toolKey = partId || `${messageID || ""}:${toolName}:${Date.now()}`
                 const now = Date.now()
                 
                 if (status === "pending" || status === "running") {
@@ -258,7 +292,7 @@ export class OpenCodeAgent implements Agent {
                     if (toolInput) {
                       toolInputs.set(toolKey, toolInput)
                     }
-                    collectAndEmitEvent({
+                    await collectAndEmitEvent({
                       type: "tool.start",
                       name: toolName,
                       timestamp: new Date(),
@@ -271,7 +305,7 @@ export class OpenCodeAgent implements Agent {
                   toolsInProgress.delete(toolKey)
                   toolStartTimes.delete(toolKey)
                   toolInputs.delete(toolKey)
-                  collectAndEmitEvent({
+                  await collectAndEmitEvent({
                     type: "tool.complete",
                     name: toolName,
                     timestamp: new Date(),
@@ -284,7 +318,7 @@ export class OpenCodeAgent implements Agent {
                   toolStartTimes.delete(toolKey)
                   toolInputs.delete(toolKey)
                   const errorMsg = stateObj?.error as string | undefined
-                  collectAndEmitEvent({
+                  await collectAndEmitEvent({
                     type: "tool.error",
                     name: toolName,
                     message: errorMsg || "Unknown error",
@@ -306,14 +340,14 @@ export class OpenCodeAgent implements Agent {
               const now = Date.now()
               if (completed) {
                 const durationMs = messageStartTime ? now - messageStartTime : undefined
-                collectAndEmitEvent({
+                await collectAndEmitEvent({
                   type: "message.complete",
                   timestamp: new Date(),
                 }, durationMs)
               } else if (messageStartTime === null) {
                 // Message started (no completed time yet) - only emit once
                 messageStartTime = now
-                collectAndEmitEvent({
+                await collectAndEmitEvent({
                   type: "message.start",
                   timestamp: new Date(),
                 })
@@ -326,7 +360,7 @@ export class OpenCodeAgent implements Agent {
             const error = props.error as Record<string, unknown> | undefined
             const errorData = error?.data as Record<string, unknown> | undefined
             const errorMsg = errorData?.message as string | undefined
-            collectAndEmitEvent({
+            await collectAndEmitEvent({
               type: "session.error",
               message: errorMsg || "Unknown session error",
               timestamp: new Date(),

@@ -1,9 +1,10 @@
 import { readFile, writeFile, readdir } from "fs/promises"
 import { join, dirname } from "path"
-import type { Agent, Evaluator, ContextProvider, LoopConfig, LoopResult, SelfReflectionResult } from "./interfaces/index.js"
+import type { Agent, Evaluator, ContextProvider, LoopConfig, LoopResult, SelfReflectionResult, DetailedEvent } from "./interfaces/index.js"
 import { DefaultContextProvider } from "./interfaces/index.js"
 import { Memory } from "./memory.js"
-import { buildReflectionPrompt, buildMidLoopReflectionPrompt, buildIterationSummary } from "./prompts.js"
+import { buildReflectionPrompt, buildMidLoopReflectionPrompt, buildIterationSummary, MANDATORY_PREFIX } from "./prompts.js"
+import { EventLogger } from "./logger.js"
 
 /**
  * Main feedback loop
@@ -37,6 +38,11 @@ export async function runLoop(config: {
 
   // Read the task
   const task = await readFile(loopConfig.taskPath, "utf-8")
+
+  // Initialize event logger for CSV logging
+  const eventLogger = new EventLogger(memory.logsDirectory)
+  await eventLogger.init()
+  console.log(`Event log: ${eventLogger.path}`)
 
   // Initialize agent if needed
   if (agent.init) {
@@ -75,12 +81,24 @@ ${lastReflection.analysis}
 ${context}`
       }
 
-      // Build the full prompt
-      const fullPrompt = `${task}\n\n---\n\n${context}`
+      // Build the full prompt with mandatory prefix FIRST
+      // The prefix contains critical instructions that cannot be ignored
+      const prefix = MANDATORY_PREFIX
+        .replace(/<NOTES_DIR>/g, memory.notesDirectory)
+        .replace(/<N>/g, String(i + 1))
+      
+      const fullPrompt = `${prefix}\n\n## YOUR TASK\n\n${task}\n\n---\n\n${context}`
 
       // Run the agent
       console.log("Running agent...")
-      const response = await agent.run(fullPrompt, context)
+      const response = await agent.run(fullPrompt, context, i)
+
+      // Log events to CSV
+      if (response.events && response.events.length > 0) {
+        for (const event of response.events) {
+          await eventLogger.logEvent(event, i)
+        }
+      }
 
       // Print agent output and logs
       console.log("\n--- Agent Output ---")
@@ -155,6 +173,17 @@ ${context}`
       })
 
       console.log(`Score: ${evaluation.score.toFixed(3)}`)
+
+      // Check if notes were written this iteration
+      const notesFiles = await readdir(memory.notesDirectory).catch(() => [])
+      const iterationNotes = notesFiles.filter(f => f.includes(`iteration_${i + 1}`) || f.includes(`iteration${i + 1}`))
+      if (iterationNotes.length === 0) {
+        console.log(`\n⚠️  WARNING: No notes written for iteration ${i + 1}!`)
+        console.log(`   The agent should write notes to: ${memory.notesDirectory}`)
+        console.log(`   Notes help track progress and avoid repeating mistakes.\n`)
+      } else {
+        console.log(`📝 Notes written: ${iterationNotes.join(", ")}`)
+      }
 
       await memory.advance()
 

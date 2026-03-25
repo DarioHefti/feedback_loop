@@ -8,9 +8,10 @@ export interface Agent {
    * Run the agent with the given task and context
    * @param task - The main task description
    * @param context - Additional context (from get_context + memory)
+   * @param iteration - Optional iteration number for logging
    * @returns Agent response with output and logs
    */
-  run(task: string, context: string): Promise<AgentResponse>
+  run(task: string, context: string, iteration?: number): Promise<AgentResponse>
 
   /**
    * Optional: Initialize the agent (e.g., start server, create session)

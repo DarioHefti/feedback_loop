@@ -5,6 +5,40 @@
  */
 
 /**
+ * MANDATORY prefix that goes at the VERY START of every prompt.
+ * This cannot be ignored - it's the first thing the agent sees.
+ */
+export const MANDATORY_PREFIX = `
+##############################################################################
+#                                                                            #
+#   STOP! READ THIS FIRST BEFORE DOING ANYTHING!                            #
+#                                                                            #
+#   1. YOU HAVE 2 MINUTES MAX - Work fast, make ONE change, then stop       #
+#   2. YOU MUST WRITE A NOTE - No exceptions. Write to: <NOTES_DIR>         #
+#   3. DO NOT over-analyze - Make a change and let the evaluator score it   #
+#                                                                            #
+##############################################################################
+
+## FIRST ACTIONS (Do these IN ORDER):
+
+1. **READ PREVIOUS NOTES** - Check <NOTES_DIR> for notes from earlier iterations
+   - Learn from what was already tried
+   - Don't repeat failed approaches
+   - Build on what worked
+
+2. **WRITE YOUR PLAN** - Create <NOTES_DIR>/iteration_<N>_plan.md with:
+   - What you're going to try
+   - Why this approach (based on previous notes)
+
+3. **MAKE ONE CHANGE** - Execute your plan, then STOP
+
+Do not keep iterating within this turn. Let the evaluator score your change.
+
+---
+
+`
+
+/**
  * System instructions prepended to every agent prompt.
  * Explains the feedback loop context and the criticalFeedback mechanism.
  */
@@ -24,37 +58,34 @@ You are operating within an automated feedback loop. After each attempt, your ou
 
 The goal is **quick iterations with feedback**, not perfection in one attempt. Make a change, let the evaluator score it, and adjust based on feedback. Multiple small iterations beat one long attempt.
 
-### Taking Notes (MANDATORY)
+### WORKFLOW (Follow this EXACTLY)
 
-**YOU MUST WRITE NOTES.** This is not optional. At the end of each iteration, write a note summarizing what you did, what worked, what failed, and what to try next.
+Every iteration MUST follow this workflow:
+
+1. **READ PREVIOUS NOTES** (FIRST!) - Check <NOTES_DIR> for existing notes
+   - What approaches were tried?
+   - What worked? What failed?
+   - Don't repeat mistakes!
+
+2. **WRITE PLAN NOTE** - Before any coding
+   - File: <NOTES_DIR>/iteration_N_plan.md
+   - Content: What you will try and why (referencing previous learnings)
+   
+3. **MAKE ONE CHANGE** - Execute your plan
+   - Keep it focused and simple
+   - Don't do multiple changes
+   
+4. **WRITE RESULT NOTE** (LAST!) - After your change
+   - File: <NOTES_DIR>/iteration_N_result.md
+   - Content: What happened, what worked/failed, next steps
+
+5. **STOP** - Let the evaluator score your change
 
 **Notes directory:** <NOTES_DIR>
 
-**Required notes:**
-1. **At the START of each iteration:** Write what approach you're trying and why
-2. **After any error:** Document the error and your hypothesis about the cause  
-3. **After any success:** Document what worked and why
-4. **At the END of each iteration:** Summary of progress and next steps
+**FAILURE TO READ/WRITE NOTES = WASTED ITERATION**
 
-**How to write notes:**
-- Use the file write tool: <NOTES_DIR>/iteration_N_<topic>.md
-- Be concise but specific - future iterations depend on these notes
-- Include code snippets, error messages, and file paths
-
-**Example note structure:**
-
-    # Iteration 3: Fixed auth error
-    
-    ## What I tried
-    Changed the token refresh logic in src/auth.ts:45
-    
-    ## Result
-    Auth error resolved, but now getting 403 on /api/users
-    
-    ## Next steps
-    Check permissions in middleware.ts
-
-**WHY THIS MATTERS:** Without notes, you will repeat the same mistakes. Notes are your memory across iterations.
+Without notes, you will forget what you tried and repeat mistakes. Notes are your memory.
 
 ### Logs and Feedback
 
