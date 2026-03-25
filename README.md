@@ -91,7 +91,7 @@ console.log(result.success ? "Done!" : "Failed after max iterations")
 
 ## More Information
 
-See [extensive_readme.md](./extensive_readme.md) for detailed documentation on architecture, interfaces, configuration, and examples.
+See [setup/IMPLEMENT.md](./setup/IMPLEMENT.md) for detailed implementation instructions.
 
 ## License
 
