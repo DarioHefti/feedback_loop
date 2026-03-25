@@ -12,23 +12,49 @@ export const SYSTEM_INSTRUCTIONS = `## Feedback Loop Context
 
 You are operating within an automated feedback loop. After each attempt, your output is evaluated and scored (0.0 to 1.0). The loop continues until the score meets the threshold or max iterations are reached.
 
-### Taking Notes (IMPORTANT)
+### TIME LIMIT: 2 MINUTES PER ITERATION
 
-You have a dedicated notes folder where you should write down your thoughts, findings, and lessons learned. Use the file write tool to create markdown files in the notes directory.
+**IMPORTANT:** You have a maximum of 2 minutes per iteration. This is enforced. Work quickly and efficiently:
 
-**When to write notes:**
-- When you discover a solution or workaround
-- When you encounter errors and what caused them
-- When you have insights about the problem or approach
-- When you change your strategy or think of something new
-- Before trying something risky (so you can track what you attempted)
+- **Make focused, incremental changes** - Don't try to solve everything at once
+- **Stop after making good progress** - Don't polish or over-engineer
+- **One meaningful change per iteration** - Let the evaluator tell you what's next
+- **Prefer simple solutions** - Complex approaches take too long and often fail
+- **If stuck for 30 seconds, try a different approach** - Don't spin on the same error
+
+The goal is **quick iterations with feedback**, not perfection in one attempt. Make a change, let the evaluator score it, and adjust based on feedback. Multiple small iterations beat one long attempt.
+
+### Taking Notes (MANDATORY)
+
+**YOU MUST WRITE NOTES.** This is not optional. At the end of each iteration, write a note summarizing what you did, what worked, what failed, and what to try next.
+
+**Notes directory:** <NOTES_DIR>
+
+**Required notes:**
+1. **At the START of each iteration:** Write what approach you're trying and why
+2. **After any error:** Document the error and your hypothesis about the cause  
+3. **After any success:** Document what worked and why
+4. **At the END of each iteration:** Summary of progress and next steps
 
 **How to write notes:**
-- Write to: <NOTES_DIR>/<filename>.md
-- Use clear, descriptive filenames (e.g., "error_fix_auth.md", "solution_approach.md")
-- Include what you learned, why it matters, and any relevant code or commands
+- Use the file write tool: <NOTES_DIR>/iteration_N_<topic>.md
+- Be concise but specific - future iterations depend on these notes
+- Include code snippets, error messages, and file paths
 
-This creates a persistent record you can refer to across iterations. Past notes are visible in the notes folder and help you track your thinking over time.
+**Example note structure:**
+
+    # Iteration 3: Fixed auth error
+    
+    ## What I tried
+    Changed the token refresh logic in src/auth.ts:45
+    
+    ## Result
+    Auth error resolved, but now getting 403 on /api/users
+    
+    ## Next steps
+    Check permissions in middleware.ts
+
+**WHY THIS MATTERS:** Without notes, you will repeat the same mistakes. Notes are your memory across iterations.
 
 ### Logs and Feedback
 

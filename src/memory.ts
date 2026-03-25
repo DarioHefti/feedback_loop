@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir } from "fs/promises"
 import { join } from "path"
+import type { DetailedEvent, FullResponseDetails } from "./interfaces/index.js"
 
 interface RunState {
   runId: string
@@ -84,6 +85,8 @@ export class Memory {
     output: string
     logs: string[]
     debug?: string
+    events?: DetailedEvent[]
+    fullResponse?: FullResponseDetails
   }): Promise<void> {
     if (result.score > this.state.bestScore) {
       this.state.bestScore = result.score
@@ -98,6 +101,8 @@ export class Memory {
       outputLength: result.output.length,
       logs: result.logs,
       debug: result.debug,
+      events: result.events,
+      fullResponse: result.fullResponse,
     }, null, 2), "utf-8")
   }
 

@@ -106,6 +106,8 @@ ${context}`
           output: response.output,
           logs: response.logs,
           debug: `CRITICAL FEEDBACK: ${criticalFeedback}`,
+          events: response.events,
+          fullResponse: response.fullResponse,
         })
         
         await memory.complete()
@@ -133,6 +135,8 @@ ${context}`
         output: response.output,
         logs: response.logs,
         debug: "awaiting evaluation",
+        events: response.events,
+        fullResponse: response.fullResponse,
       })
 
       // Evaluate the result
@@ -146,6 +150,8 @@ ${context}`
         output: response.output,
         logs: response.logs,
         debug: JSON.stringify(evaluation),
+        events: response.events,
+        fullResponse: response.fullResponse,
       })
 
       console.log(`Score: ${evaluation.score.toFixed(3)}`)
