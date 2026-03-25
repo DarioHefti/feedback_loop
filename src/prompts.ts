@@ -12,6 +12,24 @@ export const SYSTEM_INSTRUCTIONS = `## Feedback Loop Context
 
 You are operating within an automated feedback loop. After each attempt, your output is evaluated and scored (0.0 to 1.0). The loop continues until the score meets the threshold or max iterations are reached.
 
+### Taking Notes (IMPORTANT)
+
+You have a dedicated notes folder where you should write down your thoughts, findings, and lessons learned. Use the file write tool to create markdown files in the notes directory.
+
+**When to write notes:**
+- When you discover a solution or workaround
+- When you encounter errors and what caused them
+- When you have insights about the problem or approach
+- When you change your strategy or think of something new
+- Before trying something risky (so you can track what you attempted)
+
+**How to write notes:**
+- Write to: <NOTES_DIR>/<filename>.md
+- Use clear, descriptive filenames (e.g., "error_fix_auth.md", "solution_approach.md")
+- Include what you learned, why it matters, and any relevant code or commands
+
+This creates a persistent record you can refer to across iterations. Past notes are visible in the notes folder and help you track your thinking over time.
+
 ### Logs and Feedback
 
 Each iteration produces two log files in the run directory:
@@ -53,7 +71,7 @@ Use this feedback to:
 
 /**
  * Prompt template for self-reflection after a run completes.
- * Variables: {task}, {success}, {iterations}, {finalScore}, {bestScore}, {bestIteration}, {entrySummary}
+ * Variables: {task}, {success}, {iterations}, {finalScore}, {bestScore}, {bestIteration}, {iterationSummary}
  */
 export const REFLECTION_PROMPT_TEMPLATE = `You are analyzing a feedback loop run. Your job is to reflect on what worked, what didn't, and how to improve.
 
@@ -66,8 +84,8 @@ export const REFLECTION_PROMPT_TEMPLATE = `You are analyzing a feedback loop run
 - Final Score: {finalScore}
 - Best Score: {bestScore} (iteration {bestIteration})
 
-## Iteration History
-{entrySummary}
+## Iteration Summary
+{iterationSummary}
 
 ## Analysis Instructions
 Analyze this run and write recommendations for improving future runs. Consider:
@@ -96,7 +114,7 @@ export function buildReflectionPrompt(params: {
   finalScore: number
   bestScore: number
   bestIteration: number
-  entrySummary: string
+  iterationSummary: string
 }): string {
   return REFLECTION_PROMPT_TEMPLATE
     .replace("{task}", params.task)
@@ -105,7 +123,7 @@ export function buildReflectionPrompt(params: {
     .replace("{finalScore}", params.finalScore.toFixed(2))
     .replace("{bestScore}", params.bestScore.toFixed(2))
     .replace("{bestIteration}", String(params.bestIteration + 1))
-    .replace("{entrySummary}", params.entrySummary)
+    .replace("{iterationSummary}", params.iterationSummary)
 }
 
 /**
@@ -132,8 +150,8 @@ export const MID_LOOP_REFLECTION_TEMPLATE = `You are performing a mid-loop self-
 - Best Score: {bestScore} (iteration {bestIteration})
 - Score Trend: {scoreTrend}
 
-## Iteration History
-{entrySummary}
+## Iteration Summary
+{iterationSummary}
 
 ## Your Analysis
 
@@ -168,7 +186,7 @@ export function buildMidLoopReflectionPrompt(params: {
   bestScore: number
   bestIteration: number
   scoreTrend: string
-  entrySummary: string
+  iterationSummary: string
 }): string {
   return MID_LOOP_REFLECTION_TEMPLATE
     .replace("{task}", params.task)
@@ -177,30 +195,16 @@ export function buildMidLoopReflectionPrompt(params: {
     .replace("{bestScore}", (params.bestScore * 100).toFixed(0) + "%")
     .replace("{bestIteration}", String(params.bestIteration + 1))
     .replace("{scoreTrend}", params.scoreTrend)
-    .replace("{entrySummary}", params.entrySummary)
+    .replace("{iterationSummary}", params.iterationSummary)
 }
 
 /**
- * Format a single memory entry with full evaluation feedback
+ * Build a simple iteration summary from iteration log data
  */
-export function formatMemoryEntry(entry: {
-  iteration: number
-  score: number
-  approach: string
-  insights: string[]
-  failed: boolean
-}): string {
-  const status = entry.failed ? "FAILED" : `Score: ${(entry.score * 100).toFixed(0)}%`
+export function buildIterationSummary(iterations: Array<{ iteration: number; score: number; debug?: string }>): string {
+  if (iterations.length === 0) return "No iterations completed."
   
-  let result = `### Attempt ${entry.iteration + 1} (${status})\n`
-  result += `**Approach:** ${entry.approach}\n`
-  
-  if (entry.insights.length > 0) {
-    result += `\n**Evaluation Feedback:**\n`
-    for (const insight of entry.insights) {
-      result += `- ${insight}\n`
-    }
-  }
-  
-  return result
+  return iterations
+    .map(i => `- Iteration ${i.iteration}: score ${(i.score * 100).toFixed(0)}%${i.debug ? ` - ${i.debug}` : ""}`)
+    .join("\n")
 }

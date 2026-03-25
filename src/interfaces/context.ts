@@ -1,5 +1,4 @@
-import type { MemoryEntry } from "./types.js"
-import { SYSTEM_INSTRUCTIONS, formatMemoryEntry } from "../prompts.js"
+import { SYSTEM_INSTRUCTIONS } from "../prompts.js"
 
 /**
  * Context provider interface - implement this to provide task-specific context
@@ -15,11 +14,11 @@ export interface ContextProvider {
   /**
    * Get context for the current iteration
    * @param task - The main task description
-   * @param memory - Memory from previous iterations
    * @param iteration - Current iteration number (0-indexed)
+   * @param notesDir - Path to the notes directory where the agent can write markdown files
    * @returns Context string to provide to the agent
    */
-  getContext(task: string, memory: MemoryEntry[], iteration: number): Promise<string>
+  getContext(task: string, iteration: number, notesDir?: string): Promise<string>
 }
 
 /**
@@ -28,39 +27,30 @@ export interface ContextProvider {
 export type ContextProviderFactory = () => ContextProvider | Promise<ContextProvider>
 
 /**
- * Simple default context provider that includes system instructions and memory summary
+ * Context provider options
+ */
+export interface ContextProviderOptions {
+  notesDir?: string
+}
+
+/**
+ * Simple default context provider that includes system instructions and notes directory
  */
 export class DefaultContextProvider implements ContextProvider {
-  async getContext(task: string, memory: MemoryEntry[], iteration: number): Promise<string> {
+  async getContext(task: string, iteration: number, notesDir?: string): Promise<string> {
     const sections: string[] = []
     
-    // Always include system instructions so agent knows about critical feedback
-    sections.push(SYSTEM_INSTRUCTIONS)
+    // Always include system instructions so agent knows about critical feedback and notes
+    let systemInstructions = SYSTEM_INSTRUCTIONS
+    if (notesDir) {
+      systemInstructions = systemInstructions.replace(/<NOTES_DIR>/g, notesDir)
+    }
+    sections.push(systemInstructions)
     
     sections.push(`## Current Status\n`)
     sections.push(`This is iteration ${iteration + 1}.`)
-    
-    if (memory.length === 0) {
-      sections.push(`No previous attempts yet.`)
-    } else {
-      sections.push(`\n## Previous Attempts\n`)
-      
-      // Use formatMemoryEntry for detailed feedback
-      for (const entry of memory) {
-        sections.push(formatMemoryEntry(entry))
-      }
-      
-      const bestScore = Math.max(...memory.map((m) => m.score))
-      const lastScore = memory[memory.length - 1].score
-      
-      sections.push(`\n**Best score so far:** ${(bestScore * 100).toFixed(0)}%`)
-      
-      if (memory.length > 1 && lastScore < bestScore) {
-        sections.push(`\n**Note:** Your last attempt scored lower than your best (${(lastScore * 100).toFixed(0)}% vs ${(bestScore * 100).toFixed(0)}%). Consider what worked better before.`)
-      }
-      
-      sections.push(`\nLearn from the evaluation feedback above. If previous approaches aren't working, try something fundamentally different.`)
-    }
+    sections.push(`\nWrite notes to the notes folder about your thinking, solutions, and errors.`)
+    sections.push(`\n**Notes directory:** ${notesDir ?? "<notes>"}`)
     
     return sections.join("\n")
   }

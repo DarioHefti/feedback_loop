@@ -1,9 +1,9 @@
-import { readFile, writeFile } from "fs/promises"
+import { readFile, writeFile, readdir } from "fs/promises"
 import { join, dirname } from "path"
 import type { Agent, Evaluator, ContextProvider, LoopConfig, LoopResult, SelfReflectionResult } from "./interfaces/index.js"
 import { DefaultContextProvider } from "./interfaces/index.js"
 import { Memory } from "./memory.js"
-import { buildReflectionPrompt, buildMidLoopReflectionPrompt, formatMemoryEntry } from "./prompts.js"
+import { buildReflectionPrompt, buildMidLoopReflectionPrompt, buildIterationSummary } from "./prompts.js"
 
 /**
  * Main feedback loop
@@ -62,7 +62,7 @@ export async function runLoop(config: {
       console.log(`\n--- Iteration ${i + 1}/${loopConfig.maxIterations} ---`)
 
       // Get context for this iteration
-      let context = await contextProvider.getContext(task, memory.entries, i)
+      let context = await contextProvider.getContext(task, i, memory.notesDirectory)
 
       // Include last reflection analysis if available
       if (lastReflection) {
@@ -101,19 +101,12 @@ ${context}`
         console.log("=================================\n")
         
         // Log the critical feedback
-        await memory.logIteration(i, [
-          `=== Iteration ${i + 1} ===`,
-          `Timestamp: ${new Date().toISOString()}`,
-          "",
-          "=== Agent Output ===",
-          response.output,
-          "",
-          "=== Agent Logs ===",
-          ...response.logs,
-          "",
-          "=== CRITICAL FEEDBACK ===",
-          criticalFeedback,
-        ])
+        await memory.logIteration(i, {
+          score: 0,
+          output: response.output,
+          logs: response.logs,
+          debug: `CRITICAL FEEDBACK: ${criticalFeedback}`,
+        })
         
         await memory.complete()
         
@@ -134,58 +127,30 @@ ${context}`
         return result
       }
 
-      // Log the iteration output
-      await memory.logIteration(i, [
-        `=== Iteration ${i + 1} ===`,
-        `Timestamp: ${new Date().toISOString()}`,
-        "",
-        "=== Agent Output ===",
-        response.output,
-        "",
-        "=== Agent Logs ===",
-        ...response.logs,
-      ])
+      // Log the iteration (for developer debugging)
+      await memory.logIteration(i, {
+        score: 0,
+        output: response.output,
+        logs: response.logs,
+        debug: "awaiting evaluation",
+      })
 
       // Evaluate the result
       console.log("Evaluating...")
       const evaluation = await evaluator.evaluate(response, i)
       finalScore = evaluation.score
 
-      // Log the evaluation feedback
-      await memory.logEvaluation(i, evaluation)
+      // Update log with score
+      await memory.logIteration(i, {
+        score: evaluation.score,
+        output: response.output,
+        logs: response.logs,
+        debug: JSON.stringify(evaluation),
+      })
 
       console.log(`Score: ${evaluation.score.toFixed(3)}`)
 
-      // Extract approach description from response (first line or truncated)
-      const approach = response.output.split("\n")[0]?.slice(0, 100) ?? "Unknown approach"
-
-      // Record the iteration with properly serialized insights
-      // Handle different value types: arrays, objects, primitives
-      const insights = Object.entries(evaluation)
-        .filter(([k]) => k !== "score")
-        .flatMap(([k, v]) => {
-          if (Array.isArray(v)) {
-            // If value is an array, format each item
-            return v.map((item, idx) => {
-              if (typeof item === "object" && item !== null) {
-                return `${k}[${idx}]: ${JSON.stringify(item)}`
-              }
-              return `${k}[${idx}]: ${item}`
-            })
-          } else if (typeof v === "object" && v !== null) {
-            // If value is an object, JSON stringify it
-            return [`${k}: ${JSON.stringify(v)}`]
-          }
-          return [`${k}: ${v}`]
-        })
-
-      await memory.record({
-        iteration: i,
-        approach,
-        score: evaluation.score,
-        insights,
-        failed: evaluation.score === 0,
-      })
+      await memory.advance()
 
       // Callback
       onIteration?.(i, evaluation.score)
@@ -274,10 +239,7 @@ async function runSelfReflection(
 
   console.log("\n=== Self-Reflection: Analyzing run for improvements ===")
 
-  // Build detailed entry summary with full evaluation feedback
-  const entrySummary = memory.entries
-    .map(e => formatMemoryEntry(e))
-    .join("\n")
+  const iterationSummary = await loadIterationSummary(memory.logsDirectory)
 
   const reflectionPrompt = buildReflectionPrompt({
     task,
@@ -286,7 +248,7 @@ async function runSelfReflection(
     finalScore: result.finalScore,
     bestScore: result.bestScore,
     bestIteration: result.bestIteration,
-    entrySummary,
+    iterationSummary,
   })
 
   try {
@@ -321,12 +283,12 @@ ${response.output}
 }
 
 /**
- * Calculate score trend from memory entries
+ * Calculate score trend from iteration logs
  */
-function calculateScoreTrend(entries: { score: number; iteration: number }[]): string {
-  if (entries.length < 2) return "Not enough data"
+function calculateScoreTrend(iterations: { iteration: number; score: number }[]): string {
+  if (iterations.length < 2) return "Not enough data"
   
-  const scores = entries.map(e => e.score)
+  const scores = iterations.map(i => i.score)
   const lastThree = scores.slice(-3)
   
   const isImproving = lastThree.every((s, i) => i === 0 || s >= lastThree[i - 1])
@@ -337,6 +299,40 @@ function calculateScoreTrend(entries: { score: number; iteration: number }[]): s
   if (isImproving) return `Improving: ${lastThree.map(s => (s * 100).toFixed(0) + "%").join(" → ")}`
   if (isRegressing) return `Regressing: ${lastThree.map(s => (s * 100).toFixed(0) + "%").join(" → ")}`
   return `Fluctuating: ${lastThree.map(s => (s * 100).toFixed(0) + "%").join(" → ")}`
+}
+
+/**
+ * Load iteration data from the logs directory
+ */
+async function loadIterationData(logsDir: string): Promise<Array<{ iteration: number; score: number; debug?: string }>> {
+  try {
+    const files = await readdir(logsDir)
+    const jsonFiles = files.filter(f => f.startsWith("iteration_") && f.endsWith(".json"))
+    
+    const iterations: Array<{ iteration: number; score: number; debug?: string }> = []
+    
+    for (const file of jsonFiles) {
+      const content = await readFile(join(logsDir, file), "utf-8")
+      const data = JSON.parse(content)
+      iterations.push({
+        iteration: data.iteration,
+        score: data.score,
+        debug: data.debug,
+      })
+    }
+    
+    return iterations.sort((a, b) => a.iteration - b.iteration)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Load iteration summary for reflection prompts
+ */
+async function loadIterationSummary(logsDir: string): Promise<string> {
+  const iterations = await loadIterationData(logsDir)
+  return buildIterationSummary(iterations)
 }
 
 /**
@@ -353,12 +349,9 @@ async function runMidLoopReflection(
   console.log("\n=== Mid-Loop Self-Reflection ===")
   console.log(`Analyzing progress after ${iteration + 1} iterations...`)
 
-  // Build detailed entry summary with full evaluation feedback
-  const entrySummary = memory.entries
-    .map(e => formatMemoryEntry(e))
-    .join("\n")
-
-  const scoreTrend = calculateScoreTrend(memory.entries)
+  const iterations = await loadIterationData(memory.logsDirectory)
+  const iterationSummary = buildIterationSummary(iterations)
+  const scoreTrend = calculateScoreTrend(iterations)
 
   const reflectionPrompt = buildMidLoopReflectionPrompt({
     task,
@@ -367,7 +360,7 @@ async function runMidLoopReflection(
     bestScore: memory.bestScore,
     bestIteration: memory.bestIteration,
     scoreTrend,
-    entrySummary,
+    iterationSummary,
   })
 
   try {

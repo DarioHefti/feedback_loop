@@ -1,22 +1,31 @@
 import { readFile, writeFile, mkdir } from "fs/promises"
 import { join } from "path"
-import type { MemoryEntry, RunState } from "./interfaces/types.js"
 
-/**
- * Memory manager for tracking iterations and persisting state
- */
+interface RunState {
+  runId: string
+  taskPath: string
+  startedAt: string
+  currentIteration: number
+  maxIterations: number
+  threshold: number
+  bestScore: number
+  bestIteration: number
+  completed: boolean
+}
+
 export class Memory {
   private state: RunState
   private runDir: string
+  private notesDir: string
+  private logsDir: string
 
   constructor(state: RunState, runDir: string) {
     this.state = state
     this.runDir = runDir
+    this.notesDir = join(runDir, "notes")
+    this.logsDir = join(runDir, "logs")
   }
 
-  /**
-   * Create a new memory instance for a fresh run
-   */
   static async create(config: {
     taskPath: string
     maxIterations: number
@@ -27,6 +36,8 @@ export class Memory {
     const runDir = config.runDir ?? join(process.cwd(), "runs", runId)
     
     await mkdir(runDir, { recursive: true })
+    await mkdir(join(runDir, "notes"), { recursive: true })
+    await mkdir(join(runDir, "logs"), { recursive: true })
 
     const state: RunState = {
       runId,
@@ -38,7 +49,6 @@ export class Memory {
       bestScore: 0,
       bestIteration: -1,
       completed: false,
-      memory: [],
     }
 
     const memory = new Memory(state, runDir)
@@ -46,9 +56,6 @@ export class Memory {
     return memory
   }
 
-  /**
-   * Resume from an existing run
-   */
   static async resume(runDir: string): Promise<Memory> {
     const statePath = join(runDir, "state.json")
     const content = await readFile(statePath, "utf-8")
@@ -56,127 +63,62 @@ export class Memory {
     return new Memory(state, runDir)
   }
 
-  /**
-   * Record the result of an iteration
-   */
-  async record(entry: Omit<MemoryEntry, "timestamp">): Promise<void> {
-    const fullEntry: MemoryEntry = {
-      ...entry,
-      timestamp: new Date().toISOString(),
-    }
-
-    this.state.memory.push(fullEntry)
-    this.state.currentIteration = entry.iteration + 1
-
-    if (entry.score > this.state.bestScore) {
-      this.state.bestScore = entry.score
-      this.state.bestIteration = entry.iteration
-    }
-
+  async advance(): Promise<void> {
+    this.state.currentIteration++
     await this.save()
   }
 
-  /**
-   * Log agent output for an iteration
-   */
-  async logIteration(iteration: number, logs: string[]): Promise<void> {
-    const logPath = join(this.runDir, `iteration_${String(iteration + 1).padStart(3, "0")}.log`)
-    await writeFile(logPath, logs.join("\n"), "utf-8")
+  async writeNote(title: string, content: string): Promise<string> {
+    const sanitizedTitle = title.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50)
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+    const filename = `${timestamp}_${sanitizedTitle}.md`
+    const filepath = join(this.notesDir, filename)
+    
+    const noteContent = `# ${title}\n\n${content}\n`
+    await writeFile(filepath, noteContent, "utf-8")
+    return filepath
   }
 
-  /**
-   * Log evaluator feedback for an iteration
-   */
-  async logEvaluation(iteration: number, evaluation: { score: number; [key: string]: unknown }): Promise<void> {
-    const logPath = join(this.runDir, `evaluation_${String(iteration + 1).padStart(3, "0")}.log`)
-    const content = [
-      `=== Evaluation for Iteration ${iteration + 1} ===`,
-      `Timestamp: ${new Date().toISOString()}`,
-      "",
-      "=== Score ===",
-      evaluation.score.toString(),
-      "",
-      "=== Feedback ===",
-      ...Object.entries(evaluation)
-        .filter(([k]) => k !== "score")
-        .flatMap(([k, v]) => {
-          if (Array.isArray(v)) {
-            return v.map((item, idx) => {
-              if (typeof item === "object" && item !== null) {
-                return `${k}[${idx}]: ${JSON.stringify(item)}`
-              }
-              return `${k}[${idx}]: ${item}`
-            })
-          } else if (typeof v === "object" && v !== null) {
-            return [`${k}: ${JSON.stringify(v)}`]
-          }
-          return [`${k}: ${v}`]
-        }),
-    ]
-    await writeFile(logPath, content.join("\n"), "utf-8")
+  async logIteration(iteration: number, result: {
+    score: number
+    output: string
+    logs: string[]
+    debug?: string
+  }): Promise<void> {
+    if (result.score > this.state.bestScore) {
+      this.state.bestScore = result.score
+      this.state.bestIteration = iteration
+    }
+    
+    const logPath = join(this.logsDir, `iteration_${String(iteration + 1).padStart(3, "0")}.json`)
+    await writeFile(logPath, JSON.stringify({
+      iteration: iteration + 1,
+      timestamp: new Date().toISOString(),
+      score: result.score,
+      outputLength: result.output.length,
+      logs: result.logs,
+      debug: result.debug,
+    }, null, 2), "utf-8")
   }
 
-  /**
-   * Mark the run as completed
-   */
   async complete(): Promise<void> {
     this.state.completed = true
     await this.save()
   }
 
-  /**
-   * Save state to disk
-   */
   private async save(): Promise<void> {
     const statePath = join(this.runDir, "state.json")
     await writeFile(statePath, JSON.stringify(this.state, null, 2), "utf-8")
   }
 
-  // Getters
-  get entries(): MemoryEntry[] {
-    return this.state.memory
-  }
-
-  get currentIteration(): number {
-    return this.state.currentIteration
-  }
-
-  get bestScore(): number {
-    return this.state.bestScore
-  }
-
-  get bestIteration(): number {
-    return this.state.bestIteration
-  }
-
-  get runId(): string {
-    return this.state.runId
-  }
-
-  get isCompleted(): boolean {
-    return this.state.completed
-  }
-
-  get maxIterations(): number {
-    return this.state.maxIterations
-  }
-
-  get threshold(): number {
-    return this.state.threshold
-  }
-
-  get directory(): string {
-    return this.runDir
-  }
-
-  /**
-   * Get a summary of memory for context
-   */
-  summary(): string {
-    if (this.entries.length === 0) return "No previous iterations"
-    
-    return this.entries
-      .map((e) => `[${e.iteration + 1}] ${e.failed ? "FAILED" : `${e.score.toFixed(2)}`}: ${e.approach}`)
-      .join("\n")
-  }
+  get currentIteration(): number { return this.state.currentIteration }
+  get runId(): string { return this.state.runId }
+  get isCompleted(): boolean { return this.state.completed }
+  get maxIterations(): number { return this.state.maxIterations }
+  get threshold(): number { return this.state.threshold }
+  get bestScore(): number { return this.state.bestScore }
+  get bestIteration(): number { return this.state.bestIteration }
+  get directory(): string { return this.runDir }
+  get notesDirectory(): string { return this.notesDir }
+  get logsDirectory(): string { return this.logsDir }
 }
